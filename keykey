@@ -1,5 +1,68 @@
 -- ══════════════════════════════════════════════════════════════════════════════
--- KEYSER EXECUTOR COMPATIBILITY & ADAPTER LAYER
+-- SAFE GLOBAL EXECUTOR COMPATIBILITY & PROXY LAYER (KEYSER & SUSANO)
+-- ══════════════════════════════════════════════════════════════════════════════
+
+local function _safeNoop() return nil end
+
+-- Wrappers HTTP universels
+local function _httpGet(url)
+    if _G.KeyserHttpGet then
+        local r1, r2 = _G.KeyserHttpGet(url)
+        if r2 ~= nil then return r1, r2 end
+        if r1 ~= nil then return 200, tostring(r1) end
+    elseif rawget(_G, "Susano") and type(rawget(_G, "Susano")) == "table" and rawget(_G.Susano, "HttpGet") then
+        return _G.Susano.HttpGet(url)
+    end
+    return 0, nil
+end
+
+local function _httpPost(url, body, ct)
+    if _G.KeyserHttpPost then
+        local r1, r2 = _G.KeyserHttpPost(url, body)
+        if r2 ~= nil then return r1, r2 end
+        if r1 ~= nil then return 200, tostring(r1) end
+    elseif rawget(_G, "Susano") and type(rawget(_G, "Susano")) == "table" and rawget(_G.Susano, "HttpPost") then
+        return _G.Susano.HttpPost(url, body, ct)
+    end
+    return 0, nil
+end
+
+-- Création de la table proxy universelle
+local _rawKeyser = type(_G.Keyser) == "table" and _G.Keyser or {}
+local _rawSusano = type(_G.Susano) == "table" and _G.Susano or {}
+
+local _unifiedExecutor = {}
+local _mt = {
+    __index = function(t, key)
+        -- 1. Fonctions globales Keyser directes (KeyserDrawText, KeyserGetAsyncKeyState, etc.)
+        local kFn = _G["Keyser" .. key]
+        if kFn and type(kFn) == "function" then return kFn end
+
+        local sFn = _G["Susano" .. key]
+        if sFn and type(sFn) == "function" then return sFn end
+
+        -- 2. HTTP
+        if key == "HttpGet" then return _httpGet end
+        if key == "HttpPost" then return _httpPost end
+
+        -- 3. Entrée existante dans _rawKeyser ou _rawSusano
+        if _rawKeyser[key] ~= nil then return _rawKeyser[key] end
+        if _rawSusano[key] ~= nil then return _rawSusano[key] end
+
+        -- 4. Recherche globale directe
+        if _G[key] and type(_G[key]) == "function" then return _G[key] end
+
+        return _safeNoop
+    end,
+    __newindex = function(t, key, val)
+        rawset(t, key, val)
+    end
+}
+setmetatable(_unifiedExecutor, _mt)
+
+-- Définir globalement Susano et Keyser
+_G.Keyser = _unifiedExecutor
+_G.Susano = _unifiedExecutor
 -- ══════════════════════════════════════════════════════════════════════════════
 
 -- Wrappers HTTP Keyser robustes (gèrent retour simple string ou multiple status,body)
